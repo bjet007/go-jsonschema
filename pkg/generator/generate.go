@@ -88,10 +88,14 @@ func (g *Generator) DoFile(fileName string) error {
 			return errors.Wrap(err, "error parsing from standard input")
 		}
 	} else {
+		if g.schemaCacheByFileName[fileName] != nil {
+			return nil
+		}
 		schema, err = g.parseFile(fileName)
 		if err != nil {
 			return errors.Wrapf(err, "error parsing from file %s", fileName)
 		}
+		g.schemaCacheByFileName[fileName] = schema
 	}
 	return g.addFile(fileName, schema)
 }
@@ -126,11 +130,7 @@ func (g *Generator) addFile(fileName string, schema *schemas.Schema) error {
 	}).generateRootType()
 }
 
-func (g *Generator) loadSchemaFromFile(fileName, parentFileName string) (*schemas.Schema, error) {
-	if !filepath.IsAbs(fileName) {
-		fileName = filepath.Join(filepath.Dir(parentFileName), fileName)
-	}
-
+func (g *Generator) loadSchemaFromFile(fileName string) (*schemas.Schema, error) {
 	exts := append([]string{""}, g.config.ResolveExtensions...)
 	for i, ext := range exts {
 		qualified := fileName + ext
@@ -315,8 +315,11 @@ func (g *schemaGenerator) generateReferencedType(ref string) (codegen.Type, erro
 
 	var schema *schemas.Schema
 	if fileName != "" {
+		if !filepath.IsAbs(fileName) {
+			fileName = filepath.Join(filepath.Dir(g.schemaFileName), fileName)
+		}
 		var err error
-		schema, err = g.loadSchemaFromFile(fileName, g.schemaFileName)
+		schema, err = g.loadSchemaFromFile(fileName)
 		if err != nil {
 			return nil, fmt.Errorf("could not follow $ref %q to file %q: %s", ref, fileName, err)
 		}
@@ -416,6 +419,9 @@ func (g *schemaGenerator) generateDeclaredType(
 
 	if t.Enum != nil {
 		return g.generateEnumType(t, scope)
+	}
+	if t.Ref != "" {
+		return g.generateReferencedType(t.Ref)
 	}
 
 	decl := codegen.TypeDecl{
